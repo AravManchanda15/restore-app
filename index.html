@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Restore">
+<meta name="theme-color" content="#060A12">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Restore</title>
+<style>
+/* ── Token system ─────────────────────────────────────────── */
+:root {
+  --bg:       #060A12;
+  --surf:     #0D1322;
+  --surf2:    #131B2E;
+  --border:   #1B2840;
+  --border2:  #243351;
+  --text:     #C8D8F0;
+  --muted:    #4E6080;
+  --faint:    #1A2438;
+
+  --warm:     #E8A23C;
+  --warm-bg:  rgba(232,162,60,.08);
+  --cool:     #4FBFE8;
+  --cool-bg:  rgba(79,191,232,.08);
+  --green:    #3DD68C;
+  --green-bg: rgba(61,214,140,.08);
+  --red:      #E85C5C;
+
+  --r:   12px;
+  --rsm:  8px;
+  --mono: 'SF Mono','Fira Code','Cascadia Code','Consolas',monospace;
+  --sans: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+#app {
+  max-width: 430px;
+  margin: 0 auto;
+  padding: 20px 14px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Header ───────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px;
+}
+.app-name {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.status-pill {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  transition: color .3s, border-color .3s, background .3s;
+}
+.status-pill.active {
+  color: var(--green);
+  border-color: rgba(61,214,140,.25);
+  background: var(--green-bg);
+}
+
+/* ── Timer Card ───────────────────────────────────────────── */
+.timer-card {
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 28px 20px 22px;
+  text-align: center;
+}
+.timer-eyebrow {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.timer-digits {
+  font-family: var(--mono);
+  font-size: clamp(52px, 15vw, 76px);
+  font-weight: 300;
+  color: #F0F8FF;
+  letter-spacing: .03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  transition: text-shadow .5s;
+}
+.timer-digits.active {
+  text-shadow: 0 0 60px rgba(240,248,255,.12);
+}
+.timer-sub {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  margin: 6px 0 22px;
+  min-height: 16px;
+  letter-spacing: .05em;
+}
+
+/* ── Controls ─────────────────────────────────────────────── */
+.controls-main {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+.controls-secondary {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.btn {
+  border: none;
+  border-radius: var(--rsm);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s, transform .1s;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+  user-select: none;
+}
+.btn:active { transform: scale(0.95); }
+
+.btn-start {
+  background: var(--warm);
+  color: #0A0600;
+  padding: 13px 40px;
+  flex: 1;
+  max-width: 200px;
+}
+.btn-start.active {
+  background: var(--surf2);
+  color: var(--text);
+  border: 1px solid var(--border2);
+}
+.btn-ghost {
+  background: var(--surf2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 10px 16px;
+  font-size: 12px;
+}
+.btn-end {
+  background: rgba(232,92,92,.1);
+  color: var(--red);
+  border: 1px solid rgba(232,92,92,.2);
+  padding: 10px 16px;
+  font-size: 12px;
+}
+
+/* ── Metrics Grid ─────────────────────────────────────────── */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.metric-card {
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 15px 14px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.metric-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .17em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.metric-value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 30px;
+  font-weight: 300;
+  line-height: 1;
+}
+.metric-value.warm  { color: var(--warm); }
+.metric-value.cool  { color: var(--cool); }
+.metric-value.text  { color: var(--text); }
+
+.metric-sub {
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+.progress-track {
+  height: 3px;
+  background: var(--faint);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width .6s ease;
+  max-width: 100%;
+}
+.progress-fill.warm  { background: var(--warm); }
+.progress-fill.cool  { background: var(--cool); }
+.progress-fill.green { background: var(--green); }
+
+/* ── Target ───────────────────────────────────────────────── */
+.target-card {
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 15px 14px 13px;
+}
+.target-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.btn-set {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--cool);
+  background: none;
+  border: none;
+  cursor: pointer;
+  letter-spacing: .06em;
+  padding: 0;
+  font-family: var(--sans);
+  -webkit-tap-highlight-color: transparent;
+}
+.target-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.target-pct {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 300;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+}
+.target-remain {
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Calendar ─────────────────────────────────────────────── */
+.calendar-card {
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 15px 14px;
+}
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.cal-nav { display: flex; gap: 4px; }
+.btn-cal-nav {
+  background: var(--surf2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  font-family: var(--sans);
+  -webkit-tap-highlight-color: transparent;
+}
+.cal-month-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: .04em;
+}
+.cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+.cal-wd {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  padding: 2px 0;
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.cal-day {
+  aspect-ratio: 1;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: default;
+}
+.cal-day-num {
+  font-size: 11px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  line-height: 1;
+}
+.cal-day.has-break {
+  background: var(--warm-bg);
+  border: 1px solid rgba(232,162,60,.2);
+}
+.cal-day.has-break .cal-day-num { color: var(--warm); }
+.cal-day.active-break {
+  background: var(--green-bg);
+  border: 1px solid rgba(61,214,140,.25);
+}
+.cal-day.active-break .cal-day-num { color: var(--green); }
+.cal-day.today .cal-day-num { font-weight: 700; color: var(--text); }
+.cal-day.empty { opacity: 0; pointer-events: none; }
+.cal-day.future { opacity: .3; }
+.cal-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  margin-top: 2px;
+}
+.cal-dot.warm  { background: var(--warm); }
+.cal-dot.green { background: var(--green); }
+
+/* tap tooltip on mobile */
+.cal-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surf2);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 10px;
+  white-space: nowrap;
+  color: var(--text);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  z-index: 10;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.cal-day.tapped .cal-tooltip { opacity: 1; }
+
+/* ── History ──────────────────────────────────────────────── */
+.history-card {
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.history-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 13px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  color: var(--muted);
+  font-family: var(--sans);
+  -webkit-tap-highlight-color: transparent;
+}
+.history-toggle-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .17em;
+  text-transform: uppercase;
+}
+.history-right { display: flex; align-items: center; gap: 8px; }
+.history-count { font-family: var(--mono); font-size: 10px; font-variant-numeric: tabular-nums; }
+.chevron { font-size: 10px; transition: transform .2s; }
+.chevron.open { transform: rotate(180deg); }
+
+.history-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 7px; }
+.history-item {
+  background: var(--surf2);
+  border: 1px solid var(--border);
+  border-radius: var(--rsm);
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+}
+.hi-date { font-size: 11px; color: var(--muted); }
+.hi-duration { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); }
+.hi-sens { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--warm); }
+.history-empty { font-size: 11px; color: var(--muted); text-align: center; padding: 16px 0; }
+
+/* ── Modal ────────────────────────────────────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6,10,18,.88);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+.overlay.hidden { display: none; }
+.modal {
+  background: var(--surf2);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  padding: 22px 20px 20px;
+  width: 100%;
+  max-width: 400px;
+}
+.modal-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 18px; }
+.modal-desc { font-size: 11px; color: var(--muted); margin-top: -10px; margin-bottom: 16px; line-height: 1.5; }
+.modal-fields { display: flex; gap: 10px; margin-bottom: 16px; }
+.modal-field { flex: 1; }
+.modal-field label {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.modal-field input {
+  width: 100%;
+  background: var(--surf);
+  border: 1px solid var(--border);
+  border-radius: var(--rsm);
+  padding: 10px 12px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  text-align: center;
+}
+.modal-field input:focus { border-color: var(--border2); }
+.modal-actions { display: flex; gap: 8px; }
+.modal-actions .btn { flex: 1; padding: 12px; text-align: center; }
+.btn-confirm { background: var(--warm); color: #0A0600; }
+.btn-cancel { background: var(--surf); border: 1px solid var(--border); color: var(--muted); }
+.btn-danger { background: rgba(232,92,92,.15); color: var(--red); border: 1px solid rgba(232,92,92,.2); }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div class="header">
+    <span class="app-name">Restore</span>
+    <span class="status-pill" id="statusPill">Paused</span>
+  </div>
+
+  <div class="timer-card">
+    <div class="timer-eyebrow">Time Elapsed</div>
+    <div class="timer-digits" id="timerDigits">00:00:00</div>
+    <div class="timer-sub" id="timerSub">&nbsp;</div>
+    <div class="controls-main">
+      <button class="btn btn-start" id="btnStart" onclick="toggleTimer()">Start</button>
+    </div>
+    <div class="controls-secondary">
+      <button class="btn btn-ghost" onclick="openModal('addTimeModal')">+ Add Time</button>
+      <button class="btn btn-end" onclick="openModal('endModal')">End Break</button>
+    </div>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-label">Sensitivity</div>
+      <div class="metric-value warm" id="mSens">0%</div>
+      <div class="metric-sub" id="mSensPhase">Clearing phase</div>
+      <div class="progress-track"><div class="progress-fill warm" id="mSensBar" style="width:0%"></div></div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Current T</div>
+      <div class="metric-value cool" id="mT">100</div>
+      <div class="metric-sub" id="mTSub">T index</div>
+      <div class="progress-track"><div class="progress-fill cool" id="mTBar" style="width:100%"></div></div>
+    </div>
+  </div>
+
+  <div class="target-card">
+    <div class="target-header">
+      <span class="metric-label">Time to Target</span>
+      <button class="btn-set" onclick="openModal('targetModal')">Set Target</button>
+    </div>
+    <div class="target-row">
+      <div class="target-pct" id="targetPct">0%</div>
+      <div style="flex:1">
+        <div class="progress-track" style="height:5px">
+          <div class="progress-fill green" id="targetBar" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+    <div class="target-remain" id="targetRemain">Target: 72h — 72h 0m remaining</div>
+  </div>
+
+  <div class="calendar-card">
+    <div class="calendar-header">
+      <div class="cal-nav">
+        <button class="btn-cal-nav" onclick="calNav(-1)">‹</button>
+        <button class="btn-cal-nav" onclick="calNav(1)">›</button>
+      </div>
+      <span class="cal-month-label" id="calLabel"></span>
+    </div>
+    <div class="cal-weekdays">
+      <div class="cal-wd">S</div><div class="cal-wd">M</div><div class="cal-wd">T</div>
+      <div class="cal-wd">W</div><div class="cal-wd">T</div><div class="cal-wd">F</div>
+      <div class="cal-wd">S</div>
+    </div>
+    <div class="cal-grid" id="calGrid"></div>
+  </div>
+
+  <div class="history-card">
+    <button class="history-toggle" onclick="toggleHistory()">
+      <span class="history-toggle-label">Break Log</span>
+      <span class="history-right">
+        <span class="history-count" id="histCount">0 breaks</span>
+        <span class="chevron" id="histChevron">▼</span>
+      </span>
+    </button>
+    <div id="histBody" style="display:none">
+      <div class="history-body" id="histItems"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modals -->
+<div class="overlay hidden" id="addTimeModal" onclick="overlayClick(event,'addTimeModal')">
+  <div class="modal">
+    <div class="modal-title">Add Time to Timer</div>
+    <div class="modal-desc">Credit time from before you started tracking.</div>
+    <div class="modal-fields">
+      <div class="modal-field"><label>Hours</label><input type="number" id="addH" min="0" max="999" value="0" inputmode="numeric"></div>
+      <div class="modal-field"><label>Minutes</label><input type="number" id="addM" min="0" max="59" value="0" inputmode="numeric"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeModal('addTimeModal')">Cancel</button>
+      <button class="btn btn-confirm" onclick="applyAddTime()">Add Time</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="targetModal" onclick="overlayClick(event,'targetModal')">
+  <div class="modal">
+    <div class="modal-title">Set Target Duration</div>
+    <div class="modal-fields">
+      <div class="modal-field"><label>Hours</label><input type="number" id="targetH" min="1" max="9999" value="72" inputmode="numeric"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeModal('targetModal')">Cancel</button>
+      <button class="btn btn-confirm" onclick="applyTarget()">Set Target</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="endModal" onclick="overlayClick(event,'endModal')">
+  <div class="modal">
+    <div class="modal-title">End this break?</div>
+    <div class="modal-desc">Saves the session to your break log and resets the timer.</div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeModal('endModal')">Keep Going</button>
+      <button class="btn btn-danger" onclick="doEndBreak()">End &amp; Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Persistence ────────────────────────────────────────────
+const SK = 'restore_v2_state';
+const HK = 'restore_v2_history';
+
+let S = { isRunning: false, startTime: null, pausedMs: 0, targetH: 72 };
+let history = [];
+let histOpen = false;
+let calOffset = 0;
+let rafId = null;
+
+function load() {
+  try { const s = localStorage.getItem(SK); if (s) S = { ...S, ...JSON.parse(s) }; } catch(e) {}
+  try { const h = localStorage.getItem(HK); if (h) history = JSON.parse(h); } catch(e) {}
+}
+function save() {
+  try { localStorage.setItem(SK, JSON.stringify(S)); } catch(e) {}
+  try { localStorage.setItem(HK, JSON.stringify(history)); } catch(e) {}
+}
+
+// ── Timer ──────────────────────────────────────────────────
+function elapsedMs() {
+  return S.isRunning && S.startTime
+    ? (Date.now() - S.startTime) + S.pausedMs
+    : S.pausedMs;
+}
+function fmt(ms) {
+  const t = Math.floor(ms / 1000);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  return `${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+function pad(n) { return String(n).padStart(2, '0'); }
+function fmtHM(ms) {
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// ── Sensitivity model ──────────────────────────────────────
+// Two-compartment receptor recovery model.
+// Fast component (τ≈40h): rapid early upregulation in first 72h.
+// Slow component (τ≈300h): deeper normalization over weeks.
+// Calibrated: 24h≈25%, 48h≈49%, 72h≈61%, 720h≈92%
+function sens(hours) {
+  const fast = 65 * (1 - Math.exp(-hours / 40));
+  const slow = 30 * (1 - Math.exp(-hours / 300));
+  return Math.min(95, fast + slow);
+}
+function sensPhase(pct) {
+  if (pct < 3)  return 'Clearing phase';
+  if (pct < 18) return 'Early recovery';
+  if (pct < 35) return 'Active upregulation';
+  if (pct < 55) return 'Peak reset window';
+  if (pct < 72) return 'Extended normalization';
+  if (pct < 88) return 'Advanced recovery';
+  return 'Near full baseline';
+}
+
+// ── T Score ────────────────────────────────────────────────
+// Cumulative index: current break + residual from past breaks.
+// Past break residual decays as system rebuilds after resuming.
+// Half-life ≈ 5 days — recent breaks still meaningfully lower T.
+const REBUILD_HL_MS = 5 * 24 * 3600 * 1000;
+
+function tScore(currentHours) {
+  const curSens = sens(currentHours);
+  const now = Date.now();
+  let residual = 0;
+  for (const b of history) {
+    const age = now - new Date(b.date).getTime();
+    residual += b.sensitivityReached * Math.pow(2, -age / REBUILD_HL_MS);
+  }
+  residual = Math.min(40, residual);
+  return Math.round(Math.max(0, 100 - Math.min(95, curSens + residual)));
+}
+function tLabel(t) {
+  if (t > 85) return 'Very high';
+  if (t > 65) return 'High';
+  if (t > 45) return 'Moderate';
+  if (t > 25) return 'Low';
+  if (t > 10) return 'Very low';
+  return 'Near zero';
+}
+
+// ── Update ─────────────────────────────────────────────────
+function update() {
+  const ms  = elapsedMs();
+  const hrs = ms / 3600000;
+
+  const digEl = document.getElementById('timerDigits');
+  digEl.textContent = fmt(ms);
+  digEl.className = 'timer-digits' + (S.isRunning ? ' active' : '');
+
+  const days = hrs / 24;
+  document.getElementById('timerSub').textContent = days >= 1 ? `${days.toFixed(1)} days` : ' ';
+
+  const pill = document.getElementById('statusPill');
+  pill.textContent = S.isRunning ? 'Active' : 'Paused';
+  pill.className = 'status-pill' + (S.isRunning ? ' active' : '');
+
+  const startBtn = document.getElementById('btnStart');
+  startBtn.textContent = S.isRunning ? 'Pause' : (ms < 1000 ? 'Start' : 'Resume');
+  startBtn.className = 'btn btn-start' + (S.isRunning ? ' active' : '');
+
+  const s = sens(hrs);
+  document.getElementById('mSens').textContent = s.toFixed(1) + '%';
+  document.getElementById('mSensPhase').textContent = sensPhase(s);
+  document.getElementById('mSensBar').style.width = s + '%';
+
+  const t = tScore(hrs);
+  document.getElementById('mT').textContent = t;
+  document.getElementById('mTSub').textContent = tLabel(t);
+  document.getElementById('mTBar').style.width = t + '%';
+
+  const targetMs = S.targetH * 3600000;
+  const pct = Math.min(100, ms / targetMs * 100);
+  document.getElementById('targetPct').textContent = pct.toFixed(0) + '%';
+  document.getElementById('targetBar').style.width = pct + '%';
+  const remainMs = Math.max(0, targetMs - ms);
+  document.getElementById('targetRemain').textContent =
+    `Target: ${S.targetH}h — ${remainMs > 0 ? fmtHM(remainMs) + ' remaining' : '✓ Target reached'}`;
+}
+
+function tick() {
+  update();
+  if (S.isRunning) rafId = requestAnimationFrame(tick);
+}
+
+// ── Controls ───────────────────────────────────────────────
+function toggleTimer() {
+  if (S.isRunning) {
+    S.pausedMs = elapsedMs();
+    S.startTime = null;
+    S.isRunning = false;
+    cancelAnimationFrame(rafId);
+  } else {
+    S.startTime = Date.now();
+    S.isRunning = true;
+    tick();
+  }
+  save(); update();
+}
+
+function applyAddTime() {
+  const h = parseInt(document.getElementById('addH').value) || 0;
+  const m = parseInt(document.getElementById('addM').value) || 0;
+  const add = (h * 3600 + m * 60) * 1000;
+  if (add > 0) { S.pausedMs += add; save(); }
+  closeModal('addTimeModal'); update();
+}
+
+function applyTarget() {
+  const h = parseInt(document.getElementById('targetH').value);
+  if (h > 0) { S.targetH = h; save(); }
+  closeModal('targetModal'); update();
+}
+
+function doEndBreak() {
+  closeModal('endModal');
+  const ms = elapsedMs();
+  const hrs = ms / 3600000;
+  if (hrs > 0.016) {
+    history.unshift({
+      date: new Date().toISOString(),
+      hours: parseFloat(hrs.toFixed(3)),
+      sensitivityReached: parseFloat(sens(hrs).toFixed(1)),
+    });
+  }
+  cancelAnimationFrame(rafId);
+  S.isRunning = false; S.startTime = null; S.pausedMs = 0;
+  save(); renderHistory(); renderCalendar(); update();
+}
+
+// ── Modal ──────────────────────────────────────────────────
+function openModal(id) {
+  if (id === 'addTimeModal') { document.getElementById('addH').value = '0'; document.getElementById('addM').value = '0'; }
+  if (id === 'targetModal')  { document.getElementById('targetH').value = S.targetH; }
+  document.getElementById(id).classList.remove('hidden');
+}
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function overlayClick(e, id) { if (e.target === e.currentTarget) closeModal(id); }
+
+// ── History ────────────────────────────────────────────────
+function toggleHistory() {
+  histOpen = !histOpen;
+  document.getElementById('histBody').style.display = histOpen ? 'block' : 'none';
+  document.getElementById('histChevron').className = 'chevron' + (histOpen ? ' open' : '');
+}
+function renderHistory() {
+  const n = history.length;
+  document.getElementById('histCount').textContent = n === 0 ? 'No breaks' : `${n} break${n === 1 ? '' : 's'}`;
+  const el = document.getElementById('histItems');
+  if (n === 0) { el.innerHTML = '<div class="history-empty">No completed breaks yet.</div>'; return; }
+  el.innerHTML = history.map(b => {
+    const d = new Date(b.date);
+    const ds = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const h = Math.floor(b.hours);
+    const m = Math.round((b.hours - h) * 60);
+    return `<div class="history-item">
+      <div class="hi-date">${ds}</div>
+      <div class="hi-duration">${h > 0 ? h + 'h ' : ''}${m}m</div>
+      <div class="hi-sens">+${b.sensitivityReached}%</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Calendar ───────────────────────────────────────────────
+function calNav(dir) { calOffset += dir; renderCalendar(); }
+
+function renderCalendar() {
+  const today = new Date();
+  const view  = new Date(today.getFullYear(), today.getMonth() + calOffset, 1);
+  const year  = view.getFullYear();
+  const month = view.getMonth();
+
+  document.getElementById('calLabel').textContent =
+    view.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const firstDay   = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const breakDays = {};
+  for (const b of history) {
+    const d = new Date(b.date);
+    if (d.getFullYear() === year && d.getMonth() === month) {
+      const key = d.getDate();
+      if (!breakDays[key]) breakDays[key] = [];
+      breakDays[key].push(b);
+    }
+  }
+
+  const todayKey = today.getFullYear() === year && today.getMonth() === month
+    ? today.getDate() : -1;
+
+  // Active break covers today and potentially earlier days in same month
+  const activeMs = elapsedMs();
+  const hasActive = S.isRunning || S.pausedMs > 0;
+  const activeStartEpoch = hasActive
+    ? (S.startTime ? S.startTime - S.pausedMs : Date.now() - S.pausedMs)
+    : null;
+
+  let html = '';
+  for (let i = 0; i < firstDay; i++) html += '<div class="cal-day empty"></div>';
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const cellEpochStart = new Date(year, month, d).getTime();
+    const cellEpochEnd   = cellEpochStart + 86400000;
+    const isFuture = cellEpochStart > today.getTime();
+    const hasBreak = !!breakDays[d];
+    const breaks   = breakDays[d] || [];
+
+    let isActive = false;
+    if (!isFuture && activeStartEpoch !== null) {
+      isActive = activeStartEpoch < cellEpochEnd && Date.now() > cellEpochStart;
+    }
+
+    const totalHrs = breaks.reduce((s, b) => s + b.hours, 0);
+    const bh = Math.floor(totalHrs), bm = Math.round((totalHrs - bh) * 60);
+    const tooltip = hasBreak
+      ? `${bh > 0 ? bh + 'h ' : ''}${bm}m · +${breaks[0].sensitivityReached}%`
+      : (isActive && !hasBreak ? fmtHM(activeMs) + ' active' : '');
+
+    let cls = 'cal-day';
+    if (isActive && !hasBreak) cls += ' active-break';
+    else if (hasBreak) cls += ' has-break';
+    if (d === todayKey) cls += ' today';
+    if (isFuture) cls += ' future';
+
+    const dot = hasBreak
+      ? '<div class="cal-dot warm"></div>'
+      : (isActive && !hasBreak ? '<div class="cal-dot green"></div>' : '');
+
+    const tip = tooltip
+      ? `<div class="cal-tooltip">${tooltip}</div>`
+      : '';
+
+    html += `<div class="${cls}" onclick="tapDay(this)">${'<div class="cal-day-num">' + d + '</div>'}${dot}${tip}</div>`;
+  }
+
+  document.getElementById('calGrid').innerHTML = html;
+}
+
+function tapDay(el) {
+  // toggle tooltip on mobile tap
+  const wasOpen = el.classList.contains('tapped');
+  document.querySelectorAll('.cal-day.tapped').forEach(d => d.classList.remove('tapped'));
+  if (!wasOpen) el.classList.add('tapped');
+}
+
+// ── Init ───────────────────────────────────────────────────
+load();
+renderHistory();
+renderCalendar();
+update();
+if (S.isRunning) tick();
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && S.isRunning) { cancelAnimationFrame(rafId); tick(); }
+});
+
+// Service Worker registration
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
