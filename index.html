@@ -435,14 +435,16 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--rsm);
   padding: 10px 12px;
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 8px;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
-.hi-date { font-size: 11px; color: var(--muted); }
+.hi-row1 { display: flex; align-items: center; gap: 8px; }
+.hi-date { font-size: 11px; color: var(--muted); flex: 1; }
 .hi-duration { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); }
 .hi-sens { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--warm); }
+.hi-edit { background: none; border: none; color: var(--muted); font-size: 12px; cursor: pointer; padding: 0 0 0 4px; font-family: var(--sans); -webkit-tap-highlight-color: transparent; }
+.hi-times { font-family: var(--mono); font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
 .history-empty { font-size: 11px; color: var(--muted); text-align: center; padding: 16px 0; }
 
 /* ── Modal ────────────────────────────────────────────────── */
@@ -624,6 +626,21 @@ body {
   </div>
 </div>
 
+<div class="overlay hidden" id="editBreakModal" onclick="overlayClick(event,'editBreakModal')">
+  <div class="modal">
+    <div class="modal-title">Edit Break Duration</div>
+    <div class="modal-desc">Adjust the duration — sensitivity will be recalculated.</div>
+    <div class="modal-fields">
+      <div class="modal-field"><label>Hours</label><input type="number" id="editH" min="0" max="999" value="0" inputmode="numeric"></div>
+      <div class="modal-field"><label>Minutes</label><input type="number" id="editM" min="0" max="59" value="0" inputmode="numeric"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeModal('editBreakModal')">Cancel</button>
+      <button class="btn btn-confirm" onclick="saveEditBreak()">Save</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── Persistence ────────────────────────────────────────────
 const SK = 'restore_v2_state';
@@ -788,8 +805,11 @@ function doEndBreak() {
   const ms = elapsedMs();
   const hrs = ms / 3600000;
   if (hrs > 0.016) {
+    const endTime = new Date().toISOString();
+    const startTime = new Date(Date.now() - ms).toISOString();
     history.unshift({
-      date: new Date().toISOString(),
+      date: endTime,
+      startDate: startTime,
       hours: parseFloat(hrs.toFixed(3)),
       sensitivityReached: parseFloat(sens(hrs).toFixed(1)),
     });
@@ -809,27 +829,74 @@ function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function overlayClick(e, id) { if (e.target === e.currentTarget) closeModal(id); }
 
 // ── History ────────────────────────────────────────────────
+let editingBreakIdx = null;
+
+function fmtPST(isoString) {
+  return new Date(isoString).toLocaleTimeString('en-US', {
+    timeZone: 'America/Los_Angeles',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  });
+}
+
 function toggleHistory() {
   histOpen = !histOpen;
   document.getElementById('histBody').style.display = histOpen ? 'block' : 'none';
   document.getElementById('histChevron').className = 'chevron' + (histOpen ? ' open' : '');
 }
+
 function renderHistory() {
   const n = history.length;
   document.getElementById('histCount').textContent = n === 0 ? 'No breaks' : `${n} break${n === 1 ? '' : 's'}`;
   const el = document.getElementById('histItems');
   if (n === 0) { el.innerHTML = '<div class="history-empty">No completed breaks yet.</div>'; return; }
-  el.innerHTML = history.map(b => {
-    const d = new Date(b.date);
-    const ds = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  el.innerHTML = history.map((b, i) => {
+    const endDate = new Date(b.date);
+    const startDate = b.startDate ? new Date(b.startDate) : new Date(endDate.getTime() - b.hours * 3600000);
+    const ds = endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const h = Math.floor(b.hours);
     const m = Math.round((b.hours - h) * 60);
+    const startStr = fmtPST(startDate.toISOString());
+    const endStr = fmtPST(b.date);
     return `<div class="history-item">
-      <div class="hi-date">${ds}</div>
-      <div class="hi-duration">${h > 0 ? h + 'h ' : ''}${m}m</div>
-      <div class="hi-sens">+${b.sensitivityReached}%</div>
+      <div class="hi-row1">
+        <div class="hi-date">${ds}</div>
+        <div class="hi-duration">${h > 0 ? h + 'h ' : ''}${m}m</div>
+        <div class="hi-sens">+${b.sensitivityReached}%</div>
+        <button class="hi-edit" onclick="openEditBreak(${i})">✎</button>
+      </div>
+      <div class="hi-times">${startStr} → ${endStr} PST</div>
     </div>`;
   }).join('');
+}
+
+function openEditBreak(i) {
+  editingBreakIdx = i;
+  const b = history[i];
+  const h = Math.floor(b.hours);
+  const m = Math.round((b.hours - h) * 60);
+  document.getElementById('editH').value = h;
+  document.getElementById('editM').value = m;
+  openModal('editBreakModal');
+}
+
+function saveEditBreak() {
+  if (editingBreakIdx === null) return;
+  const h = parseInt(document.getElementById('editH').value) || 0;
+  const m = parseInt(document.getElementById('editM').value) || 0;
+  const newHours = h + m / 60;
+  if (newHours > 0) {
+    const b = history[editingBreakIdx];
+    b.hours = parseFloat(newHours.toFixed(3));
+    b.sensitivityReached = parseFloat(sens(newHours).toFixed(1));
+    // Recalculate startDate based on fixed end time and new duration
+    b.startDate = new Date(new Date(b.date).getTime() - newHours * 3600000).toISOString();
+    save();
+    renderHistory();
+    renderCalendar();
+    update();
+  }
+  closeModal('editBreakModal');
+  editingBreakIdx = null;
 }
 
 // ── Calendar ───────────────────────────────────────────────
