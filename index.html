@@ -628,12 +628,13 @@ body {
 
 <div class="overlay hidden" id="editBreakModal" onclick="overlayClick(event,'editBreakModal')">
   <div class="modal">
-    <div class="modal-title">Edit Break Duration</div>
-    <div class="modal-desc">Adjust the duration — sensitivity will be recalculated.</div>
-    <div class="modal-fields">
-      <div class="modal-field"><label>Hours</label><input type="number" id="editH" min="0" max="999" value="0" inputmode="numeric"></div>
-      <div class="modal-field"><label>Minutes</label><input type="number" id="editM" min="0" max="59" value="0" inputmode="numeric"></div>
+    <div class="modal-title">Edit Break</div>
+    <div class="modal-desc">Adjust start and end times — duration and sensitivity recalculate automatically.</div>
+    <div class="modal-fields" style="flex-direction:column">
+      <div class="modal-field"><label>Start</label><input type="datetime-local" id="editStart" style="font-size:14px" onchange="updateEditDuration()"></div>
+      <div class="modal-field"><label>End</label><input type="datetime-local" id="editEnd" style="font-size:14px" onchange="updateEditDuration()"></div>
     </div>
+    <div class="modal-desc" id="editDurationPreview" style="margin-bottom:16px"></div>
     <div class="modal-actions">
       <button class="btn btn-cancel" onclick="closeModal('editBreakModal')">Cancel</button>
       <button class="btn btn-confirm" onclick="saveEditBreak()">Save</button>
@@ -869,32 +870,50 @@ function renderHistory() {
   }).join('');
 }
 
+function toLocalInputValue(d) {
+  // datetime-local wants "YYYY-MM-DDTHH:MM" in device local time
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 function openEditBreak(i) {
   editingBreakIdx = i;
   const b = history[i];
-  const h = Math.floor(b.hours);
-  const m = Math.round((b.hours - h) * 60);
-  document.getElementById('editH').value = h;
-  document.getElementById('editM').value = m;
+  const end = new Date(b.date);
+  const start = b.startDate ? new Date(b.startDate) : new Date(end.getTime() - b.hours * 3600000);
+  document.getElementById('editStart').value = toLocalInputValue(start);
+  document.getElementById('editEnd').value = toLocalInputValue(end);
+  updateEditDuration();
   openModal('editBreakModal');
+}
+
+function updateEditDuration() {
+  const start = new Date(document.getElementById('editStart').value);
+  const end = new Date(document.getElementById('editEnd').value);
+  const el = document.getElementById('editDurationPreview');
+  if (isNaN(start) || isNaN(end) || end <= start) {
+    el.textContent = 'End must be after start.';
+    return;
+  }
+  const ms = end - start;
+  el.textContent = `Duration: ${fmtHM(ms)} · Sensitivity: +${sens(ms / 3600000).toFixed(1)}%`;
 }
 
 function saveEditBreak() {
   if (editingBreakIdx === null) return;
-  const h = parseInt(document.getElementById('editH').value) || 0;
-  const m = parseInt(document.getElementById('editM').value) || 0;
-  const newHours = h + m / 60;
-  if (newHours > 0) {
-    const b = history[editingBreakIdx];
-    b.hours = parseFloat(newHours.toFixed(3));
-    b.sensitivityReached = parseFloat(sens(newHours).toFixed(1));
-    // Recalculate startDate based on fixed end time and new duration
-    b.startDate = new Date(new Date(b.date).getTime() - newHours * 3600000).toISOString();
-    save();
-    renderHistory();
-    renderCalendar();
-    update();
-  }
+  const start = new Date(document.getElementById('editStart').value);
+  const end = new Date(document.getElementById('editEnd').value);
+  if (isNaN(start) || isNaN(end) || end <= start) { updateEditDuration(); return; }
+  const newHours = (end - start) / 3600000;
+  const b = history[editingBreakIdx];
+  b.startDate = start.toISOString();
+  b.date = end.toISOString();
+  b.hours = parseFloat(newHours.toFixed(3));
+  b.sensitivityReached = parseFloat(sens(newHours).toFixed(1));
+  save();
+  renderHistory();
+  renderCalendar();
+  update();
   closeModal('editBreakModal');
   editingBreakIdx = null;
 }
