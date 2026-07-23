@@ -683,30 +683,30 @@ function fmtHM(ms) {
 }
 
 // ── Sensitivity model ──────────────────────────────────────
-// Two-compartment recovery model.
-// Fast component (τ≈40h): rapid early upregulation in first 72h.
-// Slow component (τ≈300h): deeper normalization over weeks.
-// Calibrated: 24h≈25%, 48h≈49%, 72h≈61%, 720h≈92%
+// Two-compartment CB1 receptor recovery model.
+// Fast component (τ=60h): receptor desensitization reversal in first few days.
+// Slow component (τ=300h): deeper receptor density normalization over weeks.
+// Calibrated: 24h≈24%, 48h≈40%, 72h≈52%, 7d≈74%, 14d≈85%, 28d≈92%
 function sens(hours) {
-  const fast = 65 * (1 - Math.exp(-hours / 40));
+  const fast = 65 * (1 - Math.exp(-hours / 60));
   const slow = 30 * (1 - Math.exp(-hours / 300));
   return Math.min(95, fast + slow);
 }
 function sensPhase(pct) {
   if (pct < 3)  return 'Clearing phase';
-  if (pct < 18) return 'Early recovery';
-  if (pct < 35) return 'Active upregulation';
-  if (pct < 55) return 'Peak reset window';
-  if (pct < 72) return 'Extended normalization';
+  if (pct < 20) return 'Early recovery';
+  if (pct < 40) return 'Active upregulation';
+  if (pct < 58) return 'Peak reset window';
+  if (pct < 74) return 'Extended normalization';
   if (pct < 88) return 'Advanced recovery';
   return 'Near full baseline';
 }
 
 // ── T Score ────────────────────────────────────────────────
 // Cumulative index: current break + residual from past breaks.
-// Past break residual decays as system rebuilds after resuming.
-// Half-life ≈ 5 days — recent breaks still meaningfully lower T.
-const REBUILD_HL_MS = 5 * 24 * 3600 * 1000;
+// Residual weighted by recovery depth — longer breaks carry more impact.
+// Re-downregulation half-life ≈ 7 days based on CB1 re-adaptation kinetics.
+const REBUILD_HL_MS = 7 * 24 * 3600 * 1000;
 
 function tScore(currentHours) {
   const curSens = sens(currentHours);
@@ -714,9 +714,9 @@ function tScore(currentHours) {
   let residual = 0;
   for (const b of history) {
     const age = now - new Date(b.date).getTime();
-    residual += b.sensitivityReached * Math.pow(2, -age / REBUILD_HL_MS);
+    const depthWeight = b.sensitivityReached / 95;
+    residual += b.sensitivityReached * depthWeight * Math.pow(2, -age / REBUILD_HL_MS);
   }
-  residual = Math.min(40, residual);
   return Math.round(Math.max(0, 100 - Math.min(95, curSens + residual)));
 }
 function tLabel(t) {
