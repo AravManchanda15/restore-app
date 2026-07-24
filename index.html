@@ -445,6 +445,11 @@ body {
 .hi-sens { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--warm); }
 .hi-edit { background: none; border: none; color: var(--muted); font-size: 12px; cursor: pointer; padding: 0 0 0 4px; font-family: var(--sans); -webkit-tap-highlight-color: transparent; }
 .hi-hits { font-family: var(--mono); font-size: 11px; color: var(--cool); font-variant-numeric: tabular-nums; }
+.intensity-picker { display: flex; gap: 5px; flex-wrap: wrap; }
+.int-btn { flex: 1; min-width: 28px; padding: 8px 4px; background: var(--surf); border: 1px solid var(--border); border-radius: var(--rsm); color: var(--muted); font-family: var(--mono); font-size: 13px; cursor: pointer; text-align: center; transition: background .15s, border-color .15s, color .15s; -webkit-tap-highlight-color: transparent; }
+.int-btn.active { background: var(--cool-bg); border-color: var(--cool); color: var(--cool); }
+.intensity-label { font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.intensity-desc { font-size: 10px; color: var(--muted); margin-top: 6px; min-height: 14px; }
 .hi-times { font-family: var(--mono); font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
 .history-empty { font-size: 11px; color: var(--muted); text-align: center; padding: 16px 0; }
 
@@ -622,7 +627,21 @@ body {
     <div class="modal-title">End this break?</div>
     <div class="modal-desc">Saves the session to your break log and resets the timer.</div>
     <div class="modal-fields">
-      <div class="modal-field"><label>Hits this session</label><input type="number" id="endHits" min="1" max="99" value="1" inputmode="numeric"></div>
+      <div class="modal-field">
+        <div class="intensity-label">Session intensity</div>
+        <div class="intensity-picker" id="endIntensityPicker">
+          <button class="int-btn active" data-val="1" onclick="selectIntensity('end',1)">1</button>
+          <button class="int-btn" data-val="2" onclick="selectIntensity('end',2)">2</button>
+          <button class="int-btn" data-val="3" onclick="selectIntensity('end',3)">3</button>
+          <button class="int-btn" data-val="4" onclick="selectIntensity('end',4)">4</button>
+          <button class="int-btn" data-val="5" onclick="selectIntensity('end',5)">5</button>
+          <button class="int-btn" data-val="6" onclick="selectIntensity('end',6)">6</button>
+          <button class="int-btn" data-val="7" onclick="selectIntensity('end',7)">7</button>
+          <button class="int-btn" data-val="8" onclick="selectIntensity('end',8)">8</button>
+        </div>
+        <div class="intensity-desc" id="endIntensityDesc">Light session</div>
+        <input type="hidden" id="endIntensity" value="1">
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-cancel" onclick="closeModal('endModal')">Keep Going</button>
@@ -653,7 +672,21 @@ body {
     <div class="modal-fields" style="flex-direction:column">
       <div class="modal-field"><label>Start</label><input type="datetime-local" id="editStart" style="font-size:14px" onchange="updateEditDuration()"></div>
       <div class="modal-field"><label>End</label><input type="datetime-local" id="editEnd" style="font-size:14px" onchange="updateEditDuration()"></div>
-      <div class="modal-field"><label>Hits this session</label><input type="number" id="editHits" min="1" max="99" value="1" inputmode="numeric"></div>
+      <div class="modal-field">
+        <div class="intensity-label">Session intensity</div>
+        <div class="intensity-picker" id="editIntensityPicker">
+          <button class="int-btn active" data-val="1" onclick="selectIntensity('edit',1)">1</button>
+          <button class="int-btn" data-val="2" onclick="selectIntensity('edit',2)">2</button>
+          <button class="int-btn" data-val="3" onclick="selectIntensity('edit',3)">3</button>
+          <button class="int-btn" data-val="4" onclick="selectIntensity('edit',4)">4</button>
+          <button class="int-btn" data-val="5" onclick="selectIntensity('edit',5)">5</button>
+          <button class="int-btn" data-val="6" onclick="selectIntensity('edit',6)">6</button>
+          <button class="int-btn" data-val="7" onclick="selectIntensity('edit',7)">7</button>
+          <button class="int-btn" data-val="8" onclick="selectIntensity('edit',8)">8</button>
+        </div>
+        <div class="intensity-desc" id="editIntensityDesc">Light session</div>
+        <input type="hidden" id="editIntensity" value="1">
+      </div>
     </div>
     <div class="modal-desc" id="editDurationPreview" style="margin-bottom:16px"></div>
     <div class="modal-actions">
@@ -727,8 +760,8 @@ function sensPhase(pct) {
 // T = tolerance level. High T = high tolerance, low T = near baseline.
 // T = 100 - currentRecovery - pastRecovery
 // Past BREAKS reduce T (they represent real recovery that partially persists).
-// More hits after a break = that recovery fades faster (re-downregulation).
-// Intensity uses log scale: more hits = faster decay of break benefit.
+// Higher session intensity (1-8) = break benefit decays faster after resuming.
+// Intensity scale is logarithmic: 1→1.0x decay, 4→1.67x, 8→2.0x
 const REBUILD_HL_MS = 7 * 24 * 3600 * 1000;
 
 function tScore(currentHours) {
@@ -737,8 +770,8 @@ function tScore(currentHours) {
   let pastRecovery = 0;
   for (const b of history) {
     const age = now - new Date(b.date).getTime();
-    const hits = b.hits || 1;
-    const intensityFactor = 1 + Math.log(hits) / Math.log(10);
+    const intensity = b.intensity || b.hits || 1;
+    const intensityFactor = 1 + Math.log(Math.max(1, intensity)) / Math.log(8);
     const decay = Math.pow(2, -age * intensityFactor / REBUILD_HL_MS);
     pastRecovery += b.sensitivityReached * decay;
   }
@@ -842,7 +875,7 @@ function doEndBreak() {
   closeModal('endModal');
   const ms = elapsedMs();
   const hrs = ms / 3600000;
-  const hits = parseInt(document.getElementById('endHits').value) || 1;
+  const intensity = parseInt(document.getElementById('endIntensity').value) || 1;
   if (hrs > 0.016) {
     const endTime = new Date().toISOString();
     const startTime = new Date(Date.now() - ms).toISOString();
@@ -851,7 +884,7 @@ function doEndBreak() {
       startDate: startTime,
       hours: parseFloat(hrs.toFixed(3)),
       sensitivityReached: parseFloat(sens(hrs).toFixed(1)),
-      hits,
+      intensity,
     });
   }
   cancelAnimationFrame(rafId);
@@ -864,11 +897,21 @@ function openModal(id) {
   if (id === 'addTimeModal')    { document.getElementById('addH').value = '0'; document.getElementById('addM').value = '0'; }
   if (id === 'removeTimeModal') { document.getElementById('removeH').value = '0'; document.getElementById('removeM').value = '0'; }
   if (id === 'targetModal')     { document.getElementById('targetH').value = S.targetH; }
-  if (id === 'endModal')        { document.getElementById('endHits').value = '1'; }
+  if (id === 'endModal')        { selectIntensity('end', 1); }
   document.getElementById(id).classList.remove('hidden');
 }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function overlayClick(e, id) { if (e.target === e.currentTarget) closeModal(id); }
+
+const INTENSITY_LABELS = ['','Light','Light-moderate','Moderate','Moderate','Moderate-heavy','Heavy','Heavy','Very heavy'];
+
+function selectIntensity(prefix, val) {
+  document.getElementById(prefix + 'Intensity').value = val;
+  document.getElementById(prefix + 'IntensityDesc').textContent = INTENSITY_LABELS[val] || '';
+  document.querySelectorAll('#' + prefix + 'IntensityPicker .int-btn').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.val) === val);
+  });
+}
 
 // ── History ────────────────────────────────────────────────
 let editingBreakIdx = null;
@@ -904,7 +947,7 @@ function renderHistory() {
         <div class="hi-date">${ds}</div>
         <div class="hi-duration">${h > 0 ? h + 'h ' : ''}${m}m</div>
         <div class="hi-sens">+${b.sensitivityReached}%</div>
-        ${b.hits ? `<div class="hi-hits">↓ ${b.hits} after</div>` : ''}
+        ${(b.intensity || b.hits) ? `<div class="hi-hits">↓ ${b.intensity || b.hits}/8</div>` : ''}
         <button class="hi-edit" onclick="openEditBreak(${i})">✎</button>
       </div>
       <div class="hi-times">${startStr} → ${endStr} PST</div>
@@ -925,7 +968,7 @@ function openEditBreak(i) {
   const start = b.startDate ? new Date(b.startDate) : new Date(end.getTime() - b.hours * 3600000);
   document.getElementById('editStart').value = toLocalInputValue(start);
   document.getElementById('editEnd').value = toLocalInputValue(end);
-  document.getElementById('editHits').value = b.hits || 1;
+  selectIntensity('edit', b.intensity || b.hits || 1);
   updateEditDuration();
   openModal('editBreakModal');
 }
@@ -953,7 +996,7 @@ function saveEditBreak() {
   b.date = end.toISOString();
   b.hours = parseFloat(newHours.toFixed(3));
   b.sensitivityReached = parseFloat(sens(newHours).toFixed(1));
-  b.hits = parseInt(document.getElementById('editHits').value) || 1;
+  b.intensity = parseInt(document.getElementById('editIntensity').value) || 1;
   save();
   renderHistory();
   renderCalendar();
