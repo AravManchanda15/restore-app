@@ -757,25 +757,20 @@ function sensPhase(pct) {
 }
 
 // ── T Score ────────────────────────────────────────────────
-// T = tolerance level. High T = high tolerance, low T = near baseline.
-// T = 100 - currentRecovery - pastRecovery
-// Past BREAKS reduce T (they represent real recovery that partially persists).
-// Higher session intensity (1-8) = break benefit decays faster after resuming.
-// Intensity scale is logarithmic: 1→1.0x decay, 4→1.67x, 8→2.0x
-const REBUILD_HL_MS = 7 * 24 * 3600 * 1000;
-
+// Simulates tolerance chronologically: each break reduces T, each session raises it.
+// Session load: intensity 1→8 pts, intensity 8→35 pts (linear scale).
+// Current break applies ongoing recovery to the running T.
 function tScore(currentHours) {
-  const currentRecovery = sens(currentHours);
-  const now = Date.now();
-  let pastRecovery = 0;
-  for (const b of history) {
-    const age = now - new Date(b.date).getTime();
+  const sorted = [...history].reverse(); // oldest first
+  let T = 0;
+  for (const b of sorted) {
     const intensity = b.intensity || b.hits || 1;
-    const intensityFactor = 1 + Math.log(Math.max(1, intensity)) / Math.log(8);
-    const decay = Math.pow(2, -age * intensityFactor / REBUILD_HL_MS);
-    pastRecovery += b.sensitivityReached * decay;
+    T = T * (1 - b.sensitivityReached / 100);
+    const load = 8 + ((intensity - 1) / 7) * 27;
+    T = Math.min(100, T + load);
   }
-  return Math.round(Math.min(100, Math.max(0, 100 - currentRecovery - pastRecovery)));
+  T = T * (1 - sens(currentHours) / 100);
+  return Math.round(Math.min(100, Math.max(0, T)));
 }
 function tLabel(t) {
   if (t > 80) return 'Very high';
