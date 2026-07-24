@@ -444,6 +444,7 @@ body {
 .hi-duration { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); }
 .hi-sens { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--warm); }
 .hi-edit { background: none; border: none; color: var(--muted); font-size: 12px; cursor: pointer; padding: 0 0 0 4px; font-family: var(--sans); -webkit-tap-highlight-color: transparent; }
+.hi-hits { font-family: var(--mono); font-size: 11px; color: var(--cool); font-variant-numeric: tabular-nums; }
 .hi-times { font-family: var(--mono); font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
 .history-empty { font-size: 11px; color: var(--muted); text-align: center; padding: 16px 0; }
 
@@ -520,7 +521,8 @@ body {
       <button class="btn btn-start" id="btnStart" onclick="toggleTimer()">Start</button>
     </div>
     <div class="controls-secondary">
-      <button class="btn btn-ghost" onclick="openModal('addTimeModal')">+ Add Time</button>
+      <button class="btn btn-ghost" onclick="openModal('addTimeModal')">+ Add</button>
+      <button class="btn btn-ghost" onclick="openModal('removeTimeModal')">− Remove</button>
       <button class="btn btn-end" onclick="openModal('endModal')">End Break</button>
     </div>
   </div>
@@ -619,9 +621,27 @@ body {
   <div class="modal">
     <div class="modal-title">End this break?</div>
     <div class="modal-desc">Saves the session to your break log and resets the timer.</div>
+    <div class="modal-fields">
+      <div class="modal-field"><label>Hits this session</label><input type="number" id="endHits" min="1" max="99" value="1" inputmode="numeric"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-cancel" onclick="closeModal('endModal')">Keep Going</button>
       <button class="btn btn-danger" onclick="doEndBreak()">End &amp; Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="removeTimeModal" onclick="overlayClick(event,'removeTimeModal')">
+  <div class="modal">
+    <div class="modal-title">Remove Time from Timer</div>
+    <div class="modal-desc">Subtract time if you ran the timer too long.</div>
+    <div class="modal-fields">
+      <div class="modal-field"><label>Hours</label><input type="number" id="removeH" min="0" max="999" value="0" inputmode="numeric"></div>
+      <div class="modal-field"><label>Minutes</label><input type="number" id="removeM" min="0" max="59" value="0" inputmode="numeric"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeModal('removeTimeModal')">Cancel</button>
+      <button class="btn btn-danger" onclick="applyRemoveTime()">Remove Time</button>
     </div>
   </div>
 </div>
@@ -633,6 +653,7 @@ body {
     <div class="modal-fields" style="flex-direction:column">
       <div class="modal-field"><label>Start</label><input type="datetime-local" id="editStart" style="font-size:14px" onchange="updateEditDuration()"></div>
       <div class="modal-field"><label>End</label><input type="datetime-local" id="editEnd" style="font-size:14px" onchange="updateEditDuration()"></div>
+      <div class="modal-field"><label>Hits this session</label><input type="number" id="editHits" min="1" max="99" value="1" inputmode="numeric"></div>
     </div>
     <div class="modal-desc" id="editDurationPreview" style="margin-bottom:16px"></div>
     <div class="modal-actions">
@@ -703,29 +724,33 @@ function sensPhase(pct) {
 }
 
 // ── T Score ────────────────────────────────────────────────
-// Cumulative index: current break + residual from past breaks.
-// Residual weighted by recovery depth — longer breaks carry more impact.
-// Re-downregulation half-life ≈ 7 days based on CB1 re-adaptation kinetics.
+// T = tolerance level. High T = high tolerance, low T = near baseline.
+// Base tolerance drops exponentially during break (fast then slow).
+// Past sessions add residual tolerance, weighted by depth and hit count.
+// Intensity uses log scale: more hits = higher impact, diminishing returns.
 const REBUILD_HL_MS = 7 * 24 * 3600 * 1000;
+const MAX_SESSION_CONTRIBUTION = 30;
 
 function tScore(currentHours) {
-  const curSens = sens(currentHours);
+  const baseTolerance = 100 - sens(currentHours);
   const now = Date.now();
   let residual = 0;
   for (const b of history) {
     const age = now - new Date(b.date).getTime();
+    const hits = b.hits || 1;
+    const intensityFactor = 1 + Math.log(hits) / Math.log(10);
     const depthWeight = b.sensitivityReached / 95;
-    residual += b.sensitivityReached * depthWeight * Math.pow(2, -age / REBUILD_HL_MS);
+    residual += MAX_SESSION_CONTRIBUTION * depthWeight * intensityFactor * Math.pow(2, -age / REBUILD_HL_MS);
   }
-  return Math.round(Math.max(0, 100 - Math.min(95, curSens + residual)));
+  return Math.round(Math.min(100, Math.max(0, baseTolerance + residual)));
 }
 function tLabel(t) {
-  if (t > 85) return 'Very high';
-  if (t > 65) return 'High';
-  if (t > 45) return 'Moderate';
-  if (t > 25) return 'Low';
-  if (t > 10) return 'Very low';
-  return 'Near zero';
+  if (t > 80) return 'Very high';
+  if (t > 60) return 'High';
+  if (t > 40) return 'Moderate';
+  if (t > 20) return 'Low';
+  if (t > 8)  return 'Very low';
+  return 'Near baseline';
 }
 
 // ── Update ─────────────────────────────────────────────────
@@ -795,6 +820,18 @@ function applyAddTime() {
   closeModal('addTimeModal'); update();
 }
 
+function applyRemoveTime() {
+  const h = parseInt(document.getElementById('removeH').value) || 0;
+  const m = parseInt(document.getElementById('removeM').value) || 0;
+  const remove = (h * 3600 + m * 60) * 1000;
+  if (remove > 0) {
+    S.pausedMs = Math.max(0, elapsedMs() - remove);
+    if (S.isRunning) S.startTime = Date.now();
+    save();
+  }
+  closeModal('removeTimeModal'); update();
+}
+
 function applyTarget() {
   const h = parseInt(document.getElementById('targetH').value);
   if (h > 0) { S.targetH = h; save(); }
@@ -805,6 +842,7 @@ function doEndBreak() {
   closeModal('endModal');
   const ms = elapsedMs();
   const hrs = ms / 3600000;
+  const hits = parseInt(document.getElementById('endHits').value) || 1;
   if (hrs > 0.016) {
     const endTime = new Date().toISOString();
     const startTime = new Date(Date.now() - ms).toISOString();
@@ -813,6 +851,7 @@ function doEndBreak() {
       startDate: startTime,
       hours: parseFloat(hrs.toFixed(3)),
       sensitivityReached: parseFloat(sens(hrs).toFixed(1)),
+      hits,
     });
   }
   cancelAnimationFrame(rafId);
@@ -822,8 +861,10 @@ function doEndBreak() {
 
 // ── Modal ──────────────────────────────────────────────────
 function openModal(id) {
-  if (id === 'addTimeModal') { document.getElementById('addH').value = '0'; document.getElementById('addM').value = '0'; }
-  if (id === 'targetModal')  { document.getElementById('targetH').value = S.targetH; }
+  if (id === 'addTimeModal')    { document.getElementById('addH').value = '0'; document.getElementById('addM').value = '0'; }
+  if (id === 'removeTimeModal') { document.getElementById('removeH').value = '0'; document.getElementById('removeM').value = '0'; }
+  if (id === 'targetModal')     { document.getElementById('targetH').value = S.targetH; }
+  if (id === 'endModal')        { document.getElementById('endHits').value = '1'; }
   document.getElementById(id).classList.remove('hidden');
 }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
@@ -863,6 +904,7 @@ function renderHistory() {
         <div class="hi-date">${ds}</div>
         <div class="hi-duration">${h > 0 ? h + 'h ' : ''}${m}m</div>
         <div class="hi-sens">+${b.sensitivityReached}%</div>
+        ${b.hits ? `<div class="hi-hits">${b.hits} hits</div>` : ''}
         <button class="hi-edit" onclick="openEditBreak(${i})">✎</button>
       </div>
       <div class="hi-times">${startStr} → ${endStr} PST</div>
@@ -883,6 +925,7 @@ function openEditBreak(i) {
   const start = b.startDate ? new Date(b.startDate) : new Date(end.getTime() - b.hours * 3600000);
   document.getElementById('editStart').value = toLocalInputValue(start);
   document.getElementById('editEnd').value = toLocalInputValue(end);
+  document.getElementById('editHits').value = b.hits || 1;
   updateEditDuration();
   openModal('editBreakModal');
 }
@@ -910,6 +953,7 @@ function saveEditBreak() {
   b.date = end.toISOString();
   b.hours = parseFloat(newHours.toFixed(3));
   b.sensitivityReached = parseFloat(sens(newHours).toFixed(1));
+  b.hits = parseInt(document.getElementById('editHits').value) || 1;
   save();
   renderHistory();
   renderCalendar();
